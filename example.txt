@@ -7,6 +7,7 @@ This demo compares training performance:
   - WITH Model Deployer (contiguity optimization)
   - WITHOUT Model Deployer (baseline)
 
+
 Both runs use standard data loading (no prefetcher) to isolate
 the impact of the contiguity optimization alone.
 
