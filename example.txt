@@ -1,0 +1,70 @@
+root@782507a05617:/code# bash scripts/demo_contiguity_impact.sh
+========================================================================
+xAllocator Demo: Isolated Contiguity Optimization Impact
+========================================================================
+
+This demo compares training performance:
+  - WITH Model Deployer (contiguity optimization)
+  - WITHOUT Model Deployer (baseline)
+
+Both runs use standard data loading (no prefetcher) to isolate
+the impact of the contiguity optimization alone.
+
+Expected runtime: ~2-3 minutes total
+========================================================================
+
+Step 1: Training WITH Model Deployer (contiguity optimization)
+----------------------------------------------------------------
+
+With Deployer: [████████████████████████████████████████] 5/5 epochs (100%)
+
+ Training with Model Deployer complete!
+
+Step 2: Training WITHOUT Model Deployer (baseline)
+----------------------------------------------------------------
+
+Baseline: [████████████████████████████████████████] 5/5 epochs (100%)
+
+ Baseline training complete!
+
+========================================================================
+
+
+====================================================================================================
+                                   TRAINING SUMMARY
+====================================================================================================
+
+Epoch    WITH Model Deployer                           WITHOUT Model Deployer (Baseline)            
+         ───────────────────────────────────────────── ─────────────────────────────────────────────
+         Train Loss   Eval Loss    Time       Train Loss   Eval Loss    Time      
+────────────────────────────────────────────────────────────────────────────────────────────────────
+1        3.0289       2.5276       11.67     s 3.2195       2.6598       73.24     s
+2        2.4597       2.3610       15.19     s 2.5667       2.4803       83.88     s
+3        2.2842       2.1766       32.96     s 2.4417       2.3559       86.52     s
+4        2.1205       2.0460       71.99     s 2.3030       2.2003       93.24     s
+5        1.9825       1.9563       86.40     s 2.1545       2.0732       96.60     s
+────────────────────────────────────────────────────────────────────────────────────────────────────
+TOTAL                             218.21    s                          433.48    s
+====================================================================================================
+
+PERFORMANCE IMPACT:
+────────────────────────────────────────────────────────────────────────────────────────────────────
+
+   Contiguity optimization achieved 49.7% speedup overall
+   Saved 215.27s across 5 epochs (43.05s per epoch average)
+
+  Per-epoch speedup breakdown:
+    Epoch 1: +84.1% (73.24s → 11.67s)
+    Epoch 2: +81.9% (83.88s → 15.19s)
+    Epoch 3: +61.9% (86.52s → 32.96s)
+    Epoch 4: +22.8% (93.24s → 71.99s)
+    Epoch 5: +10.6% (96.60s → 86.40s)
+
+────────────────────────────────────────────────────────────────────────────────────────────────────
+
+Configuration:
+  WITH Model Deployer:    12 attention layers converted (qkv + proj)
+  WITHOUT Model Deployer: 0 conversions (baseline)
+  Data Loading:           Standard (no prefetcher) for both runs
+
+Note: Both runs converge to similar loss values, confirming that
