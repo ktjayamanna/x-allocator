@@ -8,8 +8,8 @@ def train_epoch(model, loader, optimizer):
         x, y = x.to(device), y.to(device)
         logits = model(x)
         loss = F.cross_entropy(logits.view(-1, logits.size(-1)), y.view(-1))
-        optimizer.zero_grad()
-        loss.backward()
-        optimizer.step()
+        optimizer.zero_grad()  # Clear old gradients
+        loss.backward()        # Compute new gradients
+        optimizer.step()       # Update parameters (gradient decent)
 
 

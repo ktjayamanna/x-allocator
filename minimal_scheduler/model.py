@@ -101,7 +101,7 @@ class MinimalGPT(nn.Module):
             x = block(x)
 
         x = self.ln_f(x)
-        return self.head(x)
+        return self.head(x) # Final Output Shape: (B, T, vocab_size) 
         
 
 
