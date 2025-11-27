@@ -3,4 +3,5 @@ data/*
 **/__pycache__/
 **/*.py[cod]
 .devcontainer/.env
+DeepSpeed
 
