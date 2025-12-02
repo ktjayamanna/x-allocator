@@ -24,21 +24,22 @@ class MultiHeadAttention(nn.Module):
         q, k, v = qkv.split(self.n_embd, dim=2)
 
         # Reshape for multi-head attention: (B, T, C) -> (B, n_head, T, head_dim)
-        q = q.view(B, T, self.n_head, self.head_dim).transpose(1, 2)
-        k = k.view(B, T, self.n_head, self.head_dim).transpose(1, 2)
-        v = v.view(B, T, self.n_head, self.head_dim).transpose(1, 2)
+        q = q.view(B, T, self.n_head, self.head_dim).transpose(1, 2) # query you are asking every other token
+        k = k.view(B, T, self.n_head, self.head_dim).transpose(1, 2) # key is the answer to the query in every other token
+        v = v.view(B, T, self.n_head, self.head_dim).transpose(1, 2) # value is the amount of attention to a toekn w.r.t to the similarity between the query and the key.
 
         # Scaled dot-product attention
-        att = (q @ k.transpose(-2, -1)) * (1.0 / math.sqrt(k.size(-1)))
+        qk_similarity = (q @ k.transpose(-2, -1)) * (1.0 / math.sqrt(k.size(-1))) # (B, n_head, T, T) -> (B, n_head, Q position, K position)
 
         # Apply causal mask (prevent attending to future tokens)
         mask = torch.tril(torch.ones(T, T, device=x.device))
-        att = att.masked_fill(mask == 0, float('-inf'))
-        att = F.softmax(att, dim=-1)
+        qk_similarity = qk_similarity.masked_fill(mask == 0, float('-inf'))
+        qk_similarity = F.softmax(qk_similarity, dim=-1)
 
         # Apply attention to values
-        y = att @ v  # (B, n_head, T, head_dim)
-        y = y.transpose(1, 2).contiguous().view(B, T, C)  # (B, T, C)
+        y = qk_similarity @ v  # (B, n_head, T, head_dim)
+        # move the n_head dimension back to the second dimension and then merge using view
+        y = y.transpose(1, 2).contiguous().view(B, T, C)  # Merged heads back by n_heads x head_dim = C ->(B, T, C)
 
         # Output projection
         return self.proj(y)
