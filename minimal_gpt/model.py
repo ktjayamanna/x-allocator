@@ -17,11 +17,11 @@ class MultiHeadAttention(nn.Module):
         self.proj = nn.Linear(n_embd, n_embd)
 
     def forward(self, x):
-        B, T, C = x.shape  # batch, sequence length, embedding dim
+        B, T, C = x.shape  # batch, sequence length, embedding dim (num of features)
 
         # Calculate Q, K, V for all heads in batch
-        qkv = self.qkv(x)
-        q, k, v = qkv.split(self.n_embd, dim=2)
+        qkv = self.qkv(x) # map the last dimension C to 3 * C
+        q, k, v = qkv.split(self.n_embd, dim=2) # split the last dimension 3 * C to 3 different tensors.
 
         # Reshape for multi-head attention: (B, T, C) -> (B, n_head, T, head_dim)
         q = q.view(B, T, self.n_head, self.head_dim).transpose(1, 2) # query you are asking every other token
@@ -29,20 +29,20 @@ class MultiHeadAttention(nn.Module):
         v = v.view(B, T, self.n_head, self.head_dim).transpose(1, 2) # value is the amount of attention to a toekn w.r.t to the similarity between the query and the key.
 
         # Scaled dot-product attention
-        qk_similarity = (q @ k.transpose(-2, -1)) * (1.0 / math.sqrt(k.size(-1))) # (B, n_head, T, T) -> (B, n_head, Q position, K position)
+        qk_similarity = (q @ k.transpose(-2, -1)) * (1.0 / math.sqrt(k.size(-1))) # (B, n_head, T, T) A.K.A (B, n_head, Q position, K position)
 
         # Apply causal mask (prevent attending to future tokens)
         mask = torch.tril(torch.ones(T, T, device=x.device))
         qk_similarity = qk_similarity.masked_fill(mask == 0, float('-inf'))
         qk_similarity = F.softmax(qk_similarity, dim=-1)
 
-        # Apply attention to values
+        # Apply attention to values using matrix multiplication; not dot product.
         y = qk_similarity @ v  # (B, n_head, T, head_dim)
         # move the n_head dimension back to the second dimension and then merge using view
         y = y.transpose(1, 2).contiguous().view(B, T, C)  # Merged heads back by n_heads x head_dim = C ->(B, T, C)
 
         # Output projection
-        return self.proj(y)
+        return self.proj(y) # (B, T, C)
 
 class FeedForward(nn.Module):
     def __init__(self, n_embd):
