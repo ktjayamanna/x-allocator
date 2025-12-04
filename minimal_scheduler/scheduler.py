@@ -4,6 +4,12 @@ Prefetch Scheduler - overlaps I/O with compute
 Pattern (greedy strategy):
   First:     prefetch(0) → wait(0) → compute(0) → release(0)
   Rest:      prefetch(i+1) + compute(i) → release(i) → wait(i+1)
+
+_compute is implemented by calling the user-provided train_step_fn(x, y)
+because the scheduler doesn't need to know HOW to train - it just orchestrates WHEN.
+
+_release is implicit via Python GC when reassigning self.current_batch.
+
 """
 import torch
 from tqdm import tqdm
