@@ -27,11 +27,8 @@ class PrefetchScheduler:
         for i in tqdm(range(len(batches))):
             if i < len(batches) - 1:
                 self.next_batch = self._prefetch(batches[i + 1])
-
             x, y = self.current_batch
             train_step_fn(x, y)
-            del self.current_batch
-
             if i < len(batches) - 1:
                 self.current_batch = self._wait(self.next_batch)
 
