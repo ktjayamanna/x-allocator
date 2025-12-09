@@ -1,0 +1,51 @@
+{
+  "type": "excalidraw",
+  "version": 2,
+  "source": "https://marketplace.visualstudio.com/items?itemName=pomdtr.excalidraw-editor",
+  "elements": [
+    {
+      "id": "jPaPs_SYi9pMdggjgPRid",
+      "type": "text",
+      "x": 577.8319702148438,
+      "y": 139.5833282470703,
+      "width": 1510.7987060546875,
+      "height": 250,
+      "angle": 0,
+      "strokeColor": "#1e1e1e",
+      "backgroundColor": "transparent",
+      "fillStyle": "solid",
+      "strokeWidth": 2,
+      "strokeStyle": "solid",
+      "roughness": 1,
+      "opacity": 100,
+      "groupIds": [],
+      "frameId": null,
+      "index": "a0",
+      "roundness": null,
+      "seed": 702765108,
+      "version": 767,
+      "versionNonce": 1176599367,
+      "isDeleted": false,
+      "boundElements": [],
+      "updated": 1765300935656,
+      "link": null,
+      "locked": false,
+      "text": "Challenges\n1) Intermediate tensors are tensors inside the model’s computation graph that are not parameters \nbut persist beyond a single batch and whose layout impacts performance. \n2) Parameters do not work because you can't hide them during IO because parameters are updated via optimizer.step() every mini-batch.\n3) If N+ 1 batch is prefetched during Nth compute, overlapping is not viable. (so assume prefetch is not implemented)\n4) TFs seem to have very low # of eligible intermediate tensors that lasts across batches.\n5) Intermediate tensors that only last duing the batch has to be synchronously converted if they are being used again in the same batch during compute.\n6) We need to define the term what are IO events for a single GPU: my defintion is anytime GPU is idle during training.\n7)\n   ",
+      "fontSize": 20,
+      "fontFamily": 5,
+      "textAlign": "left",
+      "verticalAlign": "top",
+      "containerId": null,
+      "originalText": "Challenges\n1) Intermediate tensors are tensors inside the model’s computation graph that are not parameters \nbut persist beyond a single batch and whose layout impacts performance. \n2) Parameters do not work because you can't hide them during IO because parameters are updated via optimizer.step() every mini-batch.\n3) If N+ 1 batch is prefetched during Nth compute, overlapping is not viable. (so assume prefetch is not implemented)\n4) TFs seem to have very low # of eligible intermediate tensors that lasts across batches.\n5) Intermediate tensors that only last duing the batch has to be synchronously converted if they are being used again in the same batch during compute.\n6) We need to define the term what are IO events for a single GPU: my defintion is anytime GPU is idle during training.\n7)\n   ",
+      "autoResize": true,
+      "lineHeight": 1.25
+    }
+  ],
+  "appState": {
+    "gridSize": 20,
+    "gridStep": 5,
+    "gridModeEnabled": false,
+    "viewBackgroundColor": "#ffffff"
+  },
+  "files": {}
+}

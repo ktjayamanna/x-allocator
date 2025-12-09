@@ -8,13 +8,11 @@ controlling where and when tensor layout conversions happen during training/infe
 from .layout_actions import LayoutAction
 from .layout_module import LayoutAwareModule
 from .model_deployer import apply_layout_schedule, load_schedule
-from .prefetcher import CudaPrefetcher
 
 __all__ = [
     "LayoutAction",
     "LayoutAwareModule",
     "apply_layout_schedule",
     "load_schedule",
-    "CudaPrefetcher",
 ]
 

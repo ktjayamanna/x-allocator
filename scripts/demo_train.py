@@ -125,7 +125,6 @@ def main():
     parser.add_argument('--schedule', type=str, help='Path to schedule JSON file')
     parser.add_argument('--output', type=str, required=True, help='Output file path')
     parser.add_argument('--label', type=str, default='Training', help='Progress bar label')
-    parser.add_argument('--prefetch', action='store_true', help='Enable prefetcher')
     parser.add_argument('--compare', type=str, help='Compare with another output file')
     args = parser.parse_args()
 
@@ -133,8 +132,6 @@ def main():
     cmd = [sys.executable, 'src/train.py']
     if args.schedule:
         cmd.extend(['--schedule', args.schedule])
-    if args.prefetch:
-        cmd.append('--use-prefetcher')
     
     # Start training process
     process = subprocess.Popen(
