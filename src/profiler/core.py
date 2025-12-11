@@ -1,18 +1,22 @@
-from typing import Any, Dict, Optional, Tuple
+from typing import Any, Callable, List, Optional
+import time
 
 import torch
 import torch.nn as nn
 
 from .exporter import ProfileExporter
 from .hooks import HookManager
+from .data_types import IdleEventRecord
 
 
 class ContiguityProfiler:
     """
-    Profiles PyTorch models to detect non-contiguous tensors and measure conversion costs.
+    Profiles full training loop to detect non-contiguous tensors and GPU idle time.
 
-    Attaches forward hooks to all modules to record tensor layouts, execution times,
-    and conversion costs. Intended for offline profiling before training.
+    Tracks:
+    - Non-contiguous tensors in model forward pass
+    - Conversion costs for .contiguous() calls
+    - GPU idle time during data transfer (CPU → GPU)
     """
 
     def __init__(
@@ -32,6 +36,8 @@ class ContiguityProfiler:
             model, self._is_cuda, measure_conversion_cost, sample_conversion_for_all_shapes
         )
 
+        self.idle_events: List[IdleEventRecord] = []
+
     @property
     def records(self):
         return self._hook_manager.records
@@ -42,29 +48,73 @@ class ContiguityProfiler:
 
     def profile(
         self,
-        example_inputs: Tuple[Any, ...],
-        example_kwargs: Optional[Dict[str, Any]] = None,
+        dataloader,
+        train_step_fn: Callable[[Any, Any], None],
         warmup: int = 1,
         iters: int = 1,
     ):
-        """Run model with profiling hooks attached."""
-        example_kwargs = example_kwargs or {}
+        """
+        Profile full training loop including data transfer and GPU idle time.
 
+        Args:
+            dataloader: PyTorch DataLoader providing batches
+            train_step_fn: Function that takes (x, y) and performs training step
+            warmup: Number of warmup iterations
+            iters: Number of profiling iterations
+        """
         self._hook_manager.register_hooks()
 
+        data_iter = iter(dataloader)
+
+        # Warmup
         for _ in range(warmup):
-            with torch.no_grad():
-                _ = self.model(*example_inputs, **example_kwargs)
+            try:
+                batch = next(data_iter)
+            except StopIteration:
+                data_iter = iter(dataloader)
+                batch = next(data_iter)
 
+            x, y = batch
+            x, y = x.to(self.device), y.to(self.device)
+            train_step_fn(x, y)
+
+        # Clear warmup data
         self._hook_manager.clear_records()
+        self.idle_events.clear()
 
+        # Profile iterations
         for _ in range(iters):
+            try:
+                batch = next(data_iter)
+            except StopIteration:
+                data_iter = iter(dataloader)
+                batch = next(data_iter)
+
+            x, y = batch
+
+            # Measure data transfer time (GPU idle time)
             if self._is_cuda:
                 torch.cuda.synchronize()
-            with torch.no_grad():
-                _ = self.model(*example_inputs, **example_kwargs)
+            transfer_start = time.perf_counter()
+            x_gpu, y_gpu = x.to(self.device), y.to(self.device)
             if self._is_cuda:
                 torch.cuda.synchronize()
+            transfer_end = time.perf_counter()
+            transfer_ms = (transfer_end - transfer_start) * 1000.0
+
+            # Record idle event
+            idle_event = IdleEventRecord(
+                event_name="data_transfer",
+                event_type="cpu_to_gpu_transfer",
+                duration_ms=transfer_ms,
+                tensor_shapes=[tuple(x_gpu.shape), tuple(y_gpu.shape)],
+                tensor_dtypes=[str(x_gpu.dtype), str(y_gpu.dtype)],
+                extra={"batch_size": x_gpu.shape[0] if x_gpu.ndim > 0 else 1},
+            )
+            self.idle_events.append(idle_event)
+
+            # Run training step (forward, loss, backward, optimizer)
+            train_step_fn(x_gpu, y_gpu)
 
         self._hook_manager.remove_hooks()
 
@@ -72,7 +122,21 @@ class ContiguityProfiler:
         """Print human-readable summary of profiling results."""
         ProfileExporter.summarize(self.records, self.conversion_cost_table, top_k)
 
+        if self.idle_events:
+            print("\n=== GPU Idle Events Summary ===\n")
+            total_idle_ms = sum(e.duration_ms for e in self.idle_events)
+            avg_idle_ms = total_idle_ms / len(self.idle_events)
+            print(f"Total idle events: {len(self.idle_events)}")
+            print(f"Total idle time: {total_idle_ms:.2f} ms")
+            print(f"Average idle time per event: {avg_idle_ms:.2f} ms")
+            print()
+
     def export_json(self, path: str):
         """Export profiling data to JSON file."""
-        ProfileExporter.export_json(self.records, self.conversion_cost_table, path)
+        ProfileExporter.export_json(
+            self.records,
+            self.conversion_cost_table,
+            self.idle_events,
+            path
+        )
 

@@ -2,7 +2,7 @@ import json
 from dataclasses import asdict
 from typing import Any, Dict, List, Tuple
 
-from .data_types import OpProfileRecord, TensorLayoutInfo
+from .data_types import OpProfileRecord, TensorLayoutInfo, IdleEventRecord
 
 
 class ProfileExporter:
@@ -12,6 +12,7 @@ class ProfileExporter:
     def export_json(
         records: List[OpProfileRecord],
         conversion_cost_table: Dict[Tuple[int, ...], List[float]],
+        idle_events: List[IdleEventRecord],
         path: str,
     ):
         """Export profiling data to JSON file."""
@@ -20,6 +21,7 @@ class ProfileExporter:
             "conversion_cost_table": {
                 str(shape): samples for shape, samples in conversion_cost_table.items()
             },
+            "gpu_idle_events": [ProfileExporter._idle_event_to_dict(e) for e in idle_events],
         }
         with open(path, "w") as f:
             json.dump(data, f, indent=2)
@@ -79,5 +81,17 @@ class ProfileExporter:
             "estimated_conversion_cost_ms": r.estimated_conversion_cost_ms,
             "raw_conversion_samples_ms": r.raw_conversion_samples_ms,
             "extra": r.extra,
+        }
+
+    @staticmethod
+    def _idle_event_to_dict(e: IdleEventRecord) -> Dict[str, Any]:
+        """Convert IdleEventRecord to dictionary."""
+        return {
+            "event_name": e.event_name,
+            "event_type": e.event_type,
+            "duration_ms": e.duration_ms,
+            "tensor_shapes": [list(shape) for shape in e.tensor_shapes],
+            "tensor_dtypes": e.tensor_dtypes,
+            "extra": e.extra,
         }
 

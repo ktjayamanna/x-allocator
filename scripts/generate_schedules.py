@@ -3,7 +3,9 @@ import os
 import sys
 import json
 import torch
+import torch.nn.functional as F
 from torch.utils.data import DataLoader
+from torch.optim import AdamW
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src'))
 
@@ -21,13 +23,19 @@ def main():
     train_loader = DataLoader(train_dataset, batch_size=config.BATCH_SIZE, shuffle=False, num_workers=0)
 
     model = get_model(vocab_size=train_dataset.vocab_size)
-    model.eval()
+    model.train()
 
-    x, y = next(iter(train_loader))
-    x = x.to(config.DEVICE)
+    optimizer = AdamW(model.parameters(), lr=config.LEARNING_RATE)
+
+    def train_step(x, y):
+        logits = model(x)
+        loss = F.cross_entropy(logits.view(-1, logits.size(-1)), y.view(-1))
+        optimizer.zero_grad()
+        loss.backward()
+        optimizer.step()
 
     profiler = ContiguityProfiler(model, device=config.DEVICE)
-    profiler.profile(example_inputs=(x,), example_kwargs={}, warmup=1, iters=1)
+    profiler.profile(dataloader=train_loader, train_step_fn=train_step, warmup=1, iters=1)
 
     profiling_path = os.path.join(config.TMP_DIR, "profiling_results.json")
     profiler.export_json(profiling_path)

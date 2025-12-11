@@ -27,3 +27,14 @@ class OpProfileRecord:
     raw_conversion_samples_ms: List[float]
     extra: Dict[str, Any]
 
+
+@dataclass
+class IdleEventRecord:
+    """Record for GPU idle events (e.g., data transfer from CPU to GPU)."""
+    event_name: str
+    event_type: str  # "data_transfer", "cpu_preprocessing", etc.
+    duration_ms: float
+    tensor_shapes: List[Tuple[int, ...]]
+    tensor_dtypes: List[str]
+    extra: Dict[str, Any]
+
