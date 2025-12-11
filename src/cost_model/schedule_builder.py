@@ -34,7 +34,12 @@ class ScheduleInputBuilder:
 
             est_cost = cost_model.estimate(shape) if shape else None
 
-            ops.append({
+            # Extract call site information from extra field
+            extra = rec.get("extra", {})
+            call_site_file = extra.get("call_site_file")
+            call_site_line = extra.get("call_site_line")
+
+            op_dict = {
                 "op_id": op_id,
                 "module_name": rec.get("module_name"),
                 "module_type": rec.get("module_type"),
@@ -43,7 +48,15 @@ class ScheduleInputBuilder:
                 "has_noncontig_input": has_nc_in,
                 "has_noncontig_output": has_nc_out,
                 "estimated_conv_cost_ms": est_cost
-            })
+            }
+
+            # Add call site info if available
+            if call_site_file is not None:
+                op_dict["call_site_file"] = call_site_file
+            if call_site_line is not None:
+                op_dict["call_site_line"] = call_site_line
+
+            ops.append(op_dict)
 
             op_id += 1
 

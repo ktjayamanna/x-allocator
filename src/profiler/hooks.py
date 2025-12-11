@@ -1,5 +1,6 @@
+import inspect
 import time
-from typing import Any, Dict, List, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 import torch
 import torch.nn as nn
@@ -45,6 +46,23 @@ class HookManager:
         """Clear all collected profiling data."""
         self.records.clear()
         self.conversion_cost_table.clear()
+
+    def _get_call_site(self) -> Optional[Tuple[str, int]]:
+        """Get the file path and line number where the module was called from."""
+        try:
+            # Walk up the stack to find the first frame outside of PyTorch internals
+            for frame_info in inspect.stack():
+                filename = frame_info.filename
+                # Skip PyTorch internal files and this profiler code
+                if (
+                    'torch' not in filename
+                    and 'profiler' not in filename
+                    and '<' not in filename  # Skip <string>, <stdin>, etc.
+                ):
+                    return (filename, frame_info.lineno)
+        except Exception:
+            pass
+        return None
 
     def _attach_hooks_to_module(self, name: str, module: nn.Module):
         """Attach pre and forward hooks to a specific module."""
@@ -92,6 +110,13 @@ class HookManager:
                 if raw_conv_samples:
                     est_conv_cost_ms = sum(raw_conv_samples) / len(raw_conv_samples)
 
+            # Capture call site information
+            call_site = self._get_call_site()
+            extra = {}
+            if call_site:
+                extra["call_site_file"] = call_site[0]
+                extra["call_site_line"] = call_site[1]
+
             record = OpProfileRecord(
                 module_name=name,
                 module_type=mod.__class__.__name__,
@@ -103,7 +128,7 @@ class HookManager:
                 forward_time_ms=elapsed_ms,
                 estimated_conversion_cost_ms=est_conv_cost_ms,
                 raw_conversion_samples_ms=raw_conv_samples,
-                extra={},
+                extra=extra,
             )
 
             self.records.append(record)
