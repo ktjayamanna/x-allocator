@@ -13,7 +13,7 @@ class ScheduleInputBuilder:
         profile: Dict[str, Any],
         cost_model: "ConversionCostModel"
     ) -> Dict[str, Any]:
-        """Build scheduler-ready input from profiler data."""
+        """Build scheduler-ready input from profiler data and tensor flow graph."""
         ops = []
         op_id = 0
 
@@ -21,6 +21,10 @@ class ScheduleInputBuilder:
             fwd = float(rec.get("forward_time_ms", 0.0))
             has_nc_in = bool(rec.get("has_noncontig_input", False))
             has_nc_out = bool(rec.get("has_noncontig_output", False))
+
+            # Get tensor IDs for this op
+            input_tensor_ids = rec.get("input_tensor_ids", [])
+            output_tensor_ids = rec.get("output_tensor_ids", [])
 
             layouts = rec.get("input_layouts", []) + rec.get("output_layouts", [])
             if layouts:
@@ -47,7 +51,9 @@ class ScheduleInputBuilder:
                 "main_tensor_shape": list(shape),
                 "has_noncontig_input": has_nc_in,
                 "has_noncontig_output": has_nc_out,
-                "estimated_conv_cost_ms": est_cost
+                "estimated_conv_cost_ms": est_cost,
+                "input_tensor_ids": input_tensor_ids,
+                "output_tensor_ids": output_tensor_ids,
             }
 
             # Add call site info if available

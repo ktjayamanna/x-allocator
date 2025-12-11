@@ -41,7 +41,8 @@ def main():
     # Step 1: Profile the model
     print("Step 1: Profiling model...")
     profiler = ContiguityProfiler(model, device=config.DEVICE)
-    profiler.profile(dataloader=train_loader, train_step_fn=train_step, warmup=1, iters=1)
+    # Use iters=2 to detect persistent vs batch-specific tensors
+    profiler.profile(dataloader=train_loader, train_step_fn=train_step, warmup=1, iters=2)
 
     # Export profile.json (raw profiling data)
     profile_path = os.path.join(config.TMP_DIR, "profile.json")

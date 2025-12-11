@@ -37,6 +37,7 @@ class ContiguityProfiler:
         )
 
         self.idle_events: List[IdleEventRecord] = []
+        self.num_ops_per_iter: Optional[int] = None
 
     @property
     def records(self):
@@ -45,6 +46,18 @@ class ContiguityProfiler:
     @property
     def conversion_cost_table(self):
         return self._hook_manager.conversion_cost_table
+
+    @property
+    def tensor_producers(self):
+        return self._hook_manager.tensor_producers
+
+    @property
+    def tensor_consumers(self):
+        return self._hook_manager.tensor_consumers
+
+    @property
+    def tensor_info(self):
+        return self._hook_manager.tensor_info
 
     def profile(
         self,
@@ -135,6 +148,7 @@ class ContiguityProfiler:
             # After first iteration, we know how many ops per iteration
             if num_ops_per_iter is None:
                 num_ops_per_iter = records_after - records_before
+                self.num_ops_per_iter = num_ops_per_iter
 
         self._hook_manager.remove_hooks()
 
@@ -157,6 +171,10 @@ class ContiguityProfiler:
             self.records,
             self.conversion_cost_table,
             self.idle_events,
+            self.tensor_producers,
+            self.tensor_consumers,
+            self.tensor_info,
+            self.num_ops_per_iter,
             path
         )
 

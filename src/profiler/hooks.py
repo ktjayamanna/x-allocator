@@ -29,6 +29,11 @@ class HookManager:
         self.records: List[OpProfileRecord] = []
         self.conversion_cost_table: Dict[Tuple[int, ...], List[float]] = {}
 
+        # Tensor flow tracking
+        self.tensor_producers: Dict[int, int] = {}  # tensor_id -> op_id that produced it
+        self.tensor_consumers: Dict[int, List[int]] = {}  # tensor_id -> [op_ids that consumed it]
+        self.tensor_info: Dict[int, Tuple[Tuple[int, ...], bool, Optional[float]]] = {}  # tensor_id -> (shape, is_contiguous, est_cost)
+
     def register_hooks(self):
         """Attach forward hooks to all submodules."""
         for name, module in self.model.named_modules():
@@ -46,6 +51,9 @@ class HookManager:
         """Clear all collected profiling data."""
         self.records.clear()
         self.conversion_cost_table.clear()
+        self.tensor_producers.clear()
+        self.tensor_consumers.clear()
+        self.tensor_info.clear()
 
     def _get_call_site(self) -> Optional[Tuple[str, int]]:
         """Get the file path and line number where the module was called from."""
@@ -90,6 +98,21 @@ class HookManager:
             has_nc_in = any(not l.is_contiguous for l in input_layouts)
             has_nc_out = any(not l.is_contiguous for l in output_layouts)
 
+            # Extract tensor IDs
+            input_tensor_ids = [id(t) for t in input_tensors]
+            output_tensor_ids = [id(t) for t in output_tensors]
+
+            # Current op_id
+            current_op_id = len(self.records)
+
+            # Track tensor consumers (inputs)
+            for tid in input_tensor_ids:
+                self.tensor_consumers.setdefault(tid, []).append(current_op_id)
+
+            # Track tensor producers (outputs)
+            for tid in output_tensor_ids:
+                self.tensor_producers[tid] = current_op_id
+
             raw_conv_samples = []
             est_conv_cost_ms = None
 
@@ -110,6 +133,17 @@ class HookManager:
                 if raw_conv_samples:
                     est_conv_cost_ms = sum(raw_conv_samples) / len(raw_conv_samples)
 
+            # Store tensor info for building flow graph later
+            for t in input_tensors:
+                tid = id(t)
+                if tid not in self.tensor_info:
+                    self.tensor_info[tid] = (tuple(t.shape), t.is_contiguous(), est_conv_cost_ms)
+
+            for t in output_tensors:
+                tid = id(t)
+                if tid not in self.tensor_info:
+                    self.tensor_info[tid] = (tuple(t.shape), t.is_contiguous(), est_conv_cost_ms)
+
             # Capture call site information
             call_site = self._get_call_site()
             extra = {}
@@ -125,6 +159,8 @@ class HookManager:
                 has_noncontig_output=has_nc_out,
                 input_layouts=input_layouts,
                 output_layouts=output_layouts,
+                input_tensor_ids=input_tensor_ids,
+                output_tensor_ids=output_tensor_ids,
                 forward_time_ms=elapsed_ms,
                 estimated_conversion_cost_ms=est_conv_cost_ms,
                 raw_conversion_samples_ms=raw_conv_samples,

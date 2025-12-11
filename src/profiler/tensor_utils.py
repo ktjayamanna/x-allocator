@@ -28,6 +28,7 @@ def get_tensor_layout_info(t: torch.Tensor) -> TensorLayoutInfo:
         dtype=str(t.dtype).replace("torch.", ""),
         device=str(t.device),
         is_contiguous=t.is_contiguous(),
+        tensor_id=id(t),
     )
 
 

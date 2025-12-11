@@ -99,8 +99,9 @@ class ConversionCostModel:
         Export schedule.json for compiler.
 
         Contains:
-        - ops: scheduler-ready operations list
+        - ops: scheduler-ready operations list with tensor IDs
         - gpu_idle_events: GPU idle events with op references
+        - tensor_flow: tensor-level data flow graph
 
         Args:
             profile_path: Path to input profile.json
@@ -111,7 +112,8 @@ class ConversionCostModel:
 
         schedule_data = {
             "ops": self.build_schedule_input(profile)["ops"],
-            "gpu_idle_events": profile.get("gpu_idle_events", [])
+            "gpu_idle_events": profile.get("gpu_idle_events", []),
+            "tensor_flow": profile.get("tensor_flow", {})
         }
 
         with open(output_path, "w") as f:
