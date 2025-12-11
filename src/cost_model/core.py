@@ -63,3 +63,59 @@ class ConversionCostModel:
         """Build scheduler-ready input from profiler data."""
         return ScheduleInputBuilder.build(profile, self)
 
+    def export_cost_json(self, profile_path: str, output_path: str):
+        """
+        Export cost.json for debugging purposes.
+
+        Contains:
+        - conversion_cost_table: measured .contiguous() costs
+        - cost_model: regression coefficients (alpha, beta, gamma)
+
+        Args:
+            profile_path: Path to input profile.json
+            output_path: Path to save cost.json
+        """
+        with open(profile_path, "r") as f:
+            profile = json.load(f)
+
+        cost_data = {
+            "conversion_cost_table": profile.get("conversion_cost_table", {}),
+            "cost_model": {
+                "fitted": self.fitted,
+                "alpha": self.alpha if self.fitted else None,
+                "beta": self.beta if self.fitted else None,
+                "gamma": self.gamma if self.fitted else None,
+                "formula": "cost_ms ≈ alpha * numel + beta * ndim + gamma" if self.fitted else None
+            }
+        }
+
+        with open(output_path, "w") as f:
+            json.dump(cost_data, f, indent=2)
+
+        print(f"Exported cost model data to {output_path}")
+
+    def export_schedule_json(self, profile_path: str, output_path: str):
+        """
+        Export schedule.json for compiler.
+
+        Contains:
+        - ops: scheduler-ready operations list
+        - gpu_idle_events: GPU idle events with op references
+
+        Args:
+            profile_path: Path to input profile.json
+            output_path: Path to save schedule.json
+        """
+        with open(profile_path, "r") as f:
+            profile = json.load(f)
+
+        schedule_data = {
+            "ops": self.build_schedule_input(profile)["ops"],
+            "gpu_idle_events": profile.get("gpu_idle_events", [])
+        }
+
+        with open(output_path, "w") as f:
+            json.dump(schedule_data, f, indent=2)
+
+        print(f"Exported schedule data to {output_path}")
+

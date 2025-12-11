@@ -83,7 +83,8 @@ class ContiguityProfiler:
         self.idle_events.clear()
 
         # Profile iterations
-        for _ in range(iters):
+        num_ops_per_iter = None
+        for iter_idx in range(iters):
             try:
                 batch = next(data_iter)
             except StopIteration:
@@ -102,6 +103,17 @@ class ContiguityProfiler:
             transfer_end = time.perf_counter()
             transfer_ms = (transfer_end - transfer_start) * 1000.0
 
+            # Determine op_ids for this idle event
+            # Idle event happens BEFORE the forward pass of this iteration
+            if num_ops_per_iter is None:
+                # First iteration - we don't know how many ops yet
+                before_op_id = None
+                after_op_id = 0  # Will execute op 0 next
+            else:
+                # Subsequent iterations
+                before_op_id = (iter_idx - 1) * num_ops_per_iter + (num_ops_per_iter - 1)
+                after_op_id = iter_idx * num_ops_per_iter
+
             # Record idle event
             idle_event = IdleEventRecord(
                 event_name="data_transfer",
@@ -109,12 +121,20 @@ class ContiguityProfiler:
                 duration_ms=transfer_ms,
                 tensor_shapes=[tuple(x_gpu.shape), tuple(y_gpu.shape)],
                 tensor_dtypes=[str(x_gpu.dtype), str(y_gpu.dtype)],
-                extra={"batch_size": x_gpu.shape[0] if x_gpu.ndim > 0 else 1},
+                before_op_id=before_op_id,
+                after_op_id=after_op_id,
+                extra={"batch_size": x_gpu.shape[0] if x_gpu.ndim > 0 else 1, "iteration": iter_idx},
             )
             self.idle_events.append(idle_event)
 
             # Run training step (forward, loss, backward, optimizer)
+            records_before = len(self.records)
             train_step_fn(x_gpu, y_gpu)
+            records_after = len(self.records)
+
+            # After first iteration, we know how many ops per iteration
+            if num_ops_per_iter is None:
+                num_ops_per_iter = records_after - records_before
 
         self._hook_manager.remove_hooks()
 

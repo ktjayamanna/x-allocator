@@ -46,13 +46,6 @@ def evaluate(model, eval_loader):
 
 
 def main():
-    import argparse
-
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--schedule", type=str, default=None)
-    parser.add_argument("--async-conversion", action="store_true")
-    args = parser.parse_args()
-
     train_dataset, eval_dataset = load_and_prepare_data()
 
     train_loader = DataLoader(
@@ -70,15 +63,6 @@ def main():
     )
 
     model = get_model(vocab_size=train_dataset.vocab_size)
-
-    if args.schedule and os.path.exists(args.schedule):
-        from deployer import apply_layout_schedule
-        model = apply_layout_schedule(
-            model,
-            schedule_path=args.schedule,
-            use_async_conversion=args.async_conversion,
-            verbose=True
-        )
 
     optimizer = AdamW(model.parameters(), lr=config.LEARNING_RATE)
 

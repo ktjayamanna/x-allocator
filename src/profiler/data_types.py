@@ -36,5 +36,7 @@ class IdleEventRecord:
     duration_ms: float
     tensor_shapes: List[Tuple[int, ...]]
     tensor_dtypes: List[str]
+    before_op_id: Optional[int]  # op_id that executed before this idle event (None if first)
+    after_op_id: Optional[int]  # op_id that will execute after this idle event (None if last)
     extra: Dict[str, Any]
 

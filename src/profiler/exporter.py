@@ -15,7 +15,7 @@ class ProfileExporter:
         idle_events: List[IdleEventRecord],
         path: str,
     ):
-        """Export profiling data to JSON file."""
+        """Export raw profiling data to JSON file (profile.json)."""
         data = {
             "records": [ProfileExporter._record_to_dict(r) for r in records],
             "conversion_cost_table": {
@@ -92,6 +92,8 @@ class ProfileExporter:
             "duration_ms": e.duration_ms,
             "tensor_shapes": [list(shape) for shape in e.tensor_shapes],
             "tensor_dtypes": e.tensor_dtypes,
+            "before_op_id": e.before_op_id,
+            "after_op_id": e.after_op_id,
             "extra": e.extra,
         }
 
