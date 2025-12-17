@@ -132,25 +132,39 @@ def apply_insertions(source_path: str, insertions: List[ContiguousInsertion]) ->
     with open(source_path, 'r') as f:
         lines = f.readlines()
     
-    # Filter insertions for this file and sort by line number descending
+    # Filter insertions for this file, deduplicate by line number, sort descending
     file_insertions = [
-        ins for ins in insertions 
+        ins for ins in insertions
         if ins.file_path.endswith(os.path.basename(source_path))
     ]
-    file_insertions.sort(key=lambda x: x.line_number, reverse=True)
-    
-    for insertion in file_insertions:
+    # Deduplicate by line number (keep first occurrence)
+    seen_lines = set()
+    unique_insertions = []
+    for ins in file_insertions:
+        if ins.line_number not in seen_lines:
+            seen_lines.add(ins.line_number)
+            unique_insertions.append(ins)
+    unique_insertions.sort(key=lambda x: x.line_number, reverse=True)
+
+    for insertion in unique_insertions:
         line_idx = insertion.line_number - 1  # Convert to 0-indexed
         if 0 <= line_idx < len(lines):
             line = lines[line_idx]
             # Insert .contiguous() - simple approach for now
             # Add a comment indicating the insertion type
             comment = f"  # x-allocator: {insertion.insertion_type}"
-            if line.rstrip().endswith(')'):
+
+            # Strip existing comments to find the code part
+            code_part = line.split('#')[0].rstrip()
+            existing_comment = '#' + '#'.join(line.split('#')[1:]) if '#' in line else ''
+            existing_comment = existing_comment.rstrip()
+
+            if code_part.endswith(')'):
                 # Insert .contiguous() before the closing paren
-                lines[line_idx] = line.rstrip()[:-1] + ".contiguous())" + comment + "\n"
+                new_code = code_part[:-1] + ".contiguous())"
+                lines[line_idx] = new_code + existing_comment + comment + "\n"
             else:
-                # Just add a contiguous call comment for now
+                # Fallback: just add comment
                 lines[line_idx] = line.rstrip() + comment + "\n"
     
     return ''.join(lines)

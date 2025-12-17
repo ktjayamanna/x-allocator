@@ -1,6 +1,7 @@
 import os
 import requests
 import config
+import torch.nn as nn
 
 
 def download_tiny_shakespeare():
@@ -53,4 +54,9 @@ def load_and_prepare_data():
     eval_dataset = MinimalDataset(val_text, config.MAX_SEQ_LEN)
 
     return train_dataset, eval_dataset
+
+class Mark(nn.Module):
+    """Marker module - makes tensor visible to profiler hooks."""
+    def forward(self, x):
+        return x
 

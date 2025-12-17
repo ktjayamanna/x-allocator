@@ -3,6 +3,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 import math
 import config
+from utils import Mark
 
 
 class MultiHeadAttention(nn.Module):
@@ -14,25 +15,23 @@ class MultiHeadAttention(nn.Module):
         self.head_dim = n_embd // n_head
         self.qkv = nn.Linear(n_embd, 3 * n_embd)
         self.proj = nn.Linear(n_embd, n_embd)
+        self.mark = Mark()
 
     def forward(self, x):
         B, T, C = x.shape
         qkv = self.qkv(x)
         q, k, v = qkv.split(self.n_embd, dim=2)
-        
-        q = q.permute(0, 2, 1).permute(0, 2, 1)  # @noncontig: double transpose
-        k = k[:, ::1, :]  # @noncontig: slice with step
-        v = v.transpose(-1, -2).transpose(-1, -2)  # @noncontig: double transpose
-        
-        q = q.view(B, T, self.n_head, self.head_dim).transpose(1, 2)  # @noncontig: transpose after view
-        k = k.view(B, T, self.n_head, self.head_dim).transpose(1, 2)  # @noncontig: transpose after view
-        v = v.view(B, T, self.n_head, self.head_dim).transpose(1, 2)  # @noncontig: transpose after view
-        qk_similarity = (q @ k.transpose(-2, -1)) * (1.0 / math.sqrt(k.size(-1)))  # @noncontig: k transpose
+
+        q = self.mark(q.view(B, T, self.n_head, self.head_dim).transpose(1, 2))  # @noncontig
+        k = self.mark(k.view(B, T, self.n_head, self.head_dim).transpose(1, 2))  # @noncontig
+        v = self.mark(v.view(B, T, self.n_head, self.head_dim).transpose(1, 2))  # @noncontig
+
+        qk_similarity = (q @ k.transpose(-2, -1)) * (1.0 / math.sqrt(k.size(-1)))
         mask = torch.tril(torch.ones(T, T, device=x.device))
         qk_similarity = qk_similarity.masked_fill(mask == 0, float('-inf'))
         qk_similarity = F.softmax(qk_similarity, dim=-1)
         y = qk_similarity @ v
-        y = y.transpose(1, 2).contiguous().view(B, T, C)  # @userHandledContiguous: manual fix for transpose
+        y = y.transpose(1, 2).contiguous().view(B, T, C)  # @noncontigHandledByUser
         return self.proj(y)
 
 
@@ -77,18 +76,16 @@ class MinimalGPT(nn.Module):
         self.blocks = nn.ModuleList([TransformerBlock(n_embd, n_head) for _ in range(n_layer)])
         self.ln_f = nn.LayerNorm(n_embd)
         self.head = nn.Linear(n_embd, vocab_size, bias=False)
+        self.mark = Mark()
 
     def forward(self, input_ids):
         B, T = input_ids.shape
         tok_emb = self.token_emb(input_ids)
-        
-        tok_emb = tok_emb.permute(1, 0, 2).permute(1, 0, 2)  # @noncontig: T,B,C -> B,T,C
-        
+
         pos = torch.arange(T, device=input_ids.device)
         pos_emb = self.pos_emb(pos)
-        
-        pos_emb = pos_emb.unsqueeze(0).expand(B, -1, -1)  # @noncontig: expanded tensor
-        
+        pos_emb = self.mark(pos_emb.unsqueeze(0).expand(B, -1, -1))  # @noncontig
+
         x = tok_emb + pos_emb
         for block in self.blocks:
             x = block(x)
