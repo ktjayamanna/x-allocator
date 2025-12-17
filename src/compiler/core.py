@@ -176,6 +176,11 @@ def compile_project(
     schedule = load_schedule(schedule_path)
     insertions = build_ir(schedule)
     
+    # Export IR for debugging
+    ir_path = os.path.join("data", "tmp", "ir.json")
+    os.makedirs(os.path.dirname(ir_path), exist_ok=True)
+    export_ir_json(insertions, ir_path)
+    
     # Files to process
     files = ["config.py", "dataset.py", "model.py", "train.py", "utils.py"]
     
@@ -202,4 +207,32 @@ def compile_project(
             shutil.copy2(src_path, dst_path)
     
     return insertions
+
+
+def export_ir_json(insertions: List[ContiguousInsertion], output_path: str):
+    """Export IR (insertions) to JSON for debugging purposes."""
+    ir_data = {
+        "insertions": [
+            {
+                "file_path": ins.file_path,
+                "line_number": ins.line_number,
+                "insertion_type": ins.insertion_type,
+                "op_id": ins.op_id,
+                "module_name": ins.module_name,
+                "tensor_id": ins.tensor_id
+            }
+            for ins in insertions
+        ],
+        "total_insertions": len(insertions),
+        "insertions_by_type": {
+            "sync": len([ins for ins in insertions if ins.insertion_type == "sync"]),
+            "async_at_idle": len([ins for ins in insertions if ins.insertion_type == "async_at_idle"]),
+            "at_data_transfer": len([ins for ins in insertions if ins.insertion_type == "at_data_transfer"])
+        }
+    }
+    
+    with open(output_path, 'w') as f:
+        json.dump(ir_data, f, indent=2)
+    
+    print(f"Exported IR to {output_path}")
 
