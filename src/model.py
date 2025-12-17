@@ -27,6 +27,7 @@ class MultiHeadAttention(nn.Module):
         v = self.mark(v.view(B, T, self.n_head, self.head_dim).transpose(1, 2))  # @noncontig
 
         qk_similarity = (q @ k.transpose(-2, -1)) * (1.0 / math.sqrt(k.size(-1)))
+        qk_similarity = self.mark(qk_similarity) #trap for the compiler
         mask = torch.tril(torch.ones(T, T, device=x.device))
         qk_similarity = qk_similarity.masked_fill(mask == 0, float('-inf'))
         qk_similarity = F.softmax(qk_similarity, dim=-1)
@@ -55,10 +56,13 @@ class TransformerBlock(nn.Module):
         self.attn = MultiHeadAttention(n_embd, n_head)
         self.ln2 = nn.LayerNorm(n_embd)
         self.ffn = FeedForward(n_embd)
+        self.mark = Mark()
 
     def forward(self, x):
         x = x + self.attn(self.ln1(x))
         x = x + self.ffn(self.ln2(x))
+        # my_weird_tensor = self.mark(torch.randn(1, 2, 3).transpose(1, 2)) # @noncontig
+        # more_weird_stuff = self.mark(5 * my_weird_tensor)
         return x
 
 
