@@ -19,15 +19,20 @@ class MultiHeadAttention(nn.Module):
         B, T, C = x.shape
         qkv = self.qkv(x)
         q, k, v = qkv.split(self.n_embd, dim=2)
-        q = q.view(B, T, self.n_head, self.head_dim).transpose(1, 2)
-        k = k.view(B, T, self.n_head, self.head_dim).transpose(1, 2)
-        v = v.view(B, T, self.n_head, self.head_dim).transpose(1, 2)
-        qk_similarity = (q @ k.transpose(-2, -1)) * (1.0 / math.sqrt(k.size(-1)))
+        
+        q = q.permute(0, 2, 1).permute(0, 2, 1)  # @noncontig: double transpose
+        k = k[:, ::1, :]  # @noncontig: slice with step
+        v = v.transpose(-1, -2).transpose(-1, -2)  # @noncontig: double transpose
+        
+        q = q.view(B, T, self.n_head, self.head_dim).transpose(1, 2)  # @noncontig: transpose after view
+        k = k.view(B, T, self.n_head, self.head_dim).transpose(1, 2)  # @noncontig: transpose after view
+        v = v.view(B, T, self.n_head, self.head_dim).transpose(1, 2)  # @noncontig: transpose after view
+        qk_similarity = (q @ k.transpose(-2, -1)) * (1.0 / math.sqrt(k.size(-1)))  # @noncontig: k transpose
         mask = torch.tril(torch.ones(T, T, device=x.device))
         qk_similarity = qk_similarity.masked_fill(mask == 0, float('-inf'))
         qk_similarity = F.softmax(qk_similarity, dim=-1)
         y = qk_similarity @ v
-        y = y.transpose(1, 2).contiguous().view(B, T, C)
+        y = y.transpose(1, 2).contiguous().view(B, T, C)  # @userHandledContiguous: manual fix for transpose
         return self.proj(y)
 
 
@@ -76,8 +81,14 @@ class MinimalGPT(nn.Module):
     def forward(self, input_ids):
         B, T = input_ids.shape
         tok_emb = self.token_emb(input_ids)
+        
+        tok_emb = tok_emb.permute(1, 0, 2).permute(1, 0, 2)  # @noncontig: T,B,C -> B,T,C
+        
         pos = torch.arange(T, device=input_ids.device)
         pos_emb = self.pos_emb(pos)
+        
+        pos_emb = pos_emb.unsqueeze(0).expand(B, -1, -1)  # @noncontig: expanded tensor
+        
         x = tok_emb + pos_emb
         for block in self.blocks:
             x = block(x)
