@@ -5,3 +5,4 @@ data/*
 .devcontainer/.env
 DeepSpeed
 src/__pycache__
+notebooks
