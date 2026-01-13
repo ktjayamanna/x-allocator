@@ -1,4 +1,5 @@
 import json
+import math
 from dataclasses import asdict
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -52,14 +53,17 @@ class ProfileExporter:
 
         print(">> Top ops with non-contiguous tensors (by forward time):")
         for rec in problematic[:top_k]:
+            conv_cost_str = (
+                f"est_conv_cost={rec.estimated_conversion_cost_ms:.3f} ms "
+                if rec.estimated_conversion_cost_ms is not None
+                else ""
+            )
             print(
                 f"- {rec.module_name} ({rec.module_type}): "
                 f"time={rec.forward_time_ms:.3f} ms, "
                 f"noncontig_in={rec.has_noncontig_input}, "
                 f"noncontig_out={rec.has_noncontig_output}, "
-                f"est_conv_cost={rec.estimated_conversion_cost_ms:.3f} ms "
-                if rec.estimated_conversion_cost_ms is not None
-                else ""
+                f"{conv_cost_str}"
             )
 
         print("\n>> Conversion cost model (shape -> avg contiguous() cost, ms):")
@@ -83,7 +87,7 @@ class ProfileExporter:
         all_tensor_ids = set(tensor_producers.keys()) | set(tensor_consumers.keys())
 
         for tid in all_tensor_ids:
-            shape, is_contiguous, est_cost = tensor_info.get(tid, ((), True, None))
+            shape, is_contiguous, measured_conv_cost = tensor_info.get(tid, ((), True, None))
 
             # Compute tensor lifetime
             lifetime = ProfileExporter._compute_tensor_lifetime(
@@ -96,7 +100,7 @@ class ProfileExporter:
                 "is_contiguous": is_contiguous,
                 "produced_by": tensor_producers.get(tid),
                 "consumed_by": tensor_consumers.get(tid, []),
-                "estimated_conv_cost_ms": est_cost,
+                "measured_conv_cost_ms": measured_conv_cost,
                 "lifetime": lifetime,
             }
 
@@ -177,4 +181,97 @@ class ProfileExporter:
             return "persistent"
         else:
             return "batch_specific"
+
+    @staticmethod
+    def build_schedule_input(profile: Dict[str, Any]) -> Dict[str, Any]:
+        """Build scheduler-ready input from profiler data using measured tensor costs."""
+        ops = []
+        op_id = 0
+        tensor_flow = profile.get("tensor_flow", {})
+
+        for rec in profile.get("records", []):
+            fwd = float(rec.get("forward_time_ms", 0.0))
+            has_nc_in = bool(rec.get("has_noncontig_input", False))
+            has_nc_out = bool(rec.get("has_noncontig_output", False))
+
+            # Get tensor IDs for this op
+            input_tensor_ids = rec.get("input_tensor_ids", [])
+            output_tensor_ids = rec.get("output_tensor_ids", [])
+
+            layouts = rec.get("input_layouts", []) + rec.get("output_layouts", [])
+            if layouts:
+                main_layout = max(
+                    layouts,
+                    key=lambda l: int(math.prod(l["shape"])) if l.get("shape") else 0
+                )
+                shape = tuple(main_layout["shape"])
+            else:
+                shape = ()
+
+            # Get measured conversion cost from tensor flow graph
+            # Use the first input tensor's measured cost if available
+            measured_conv_cost = None
+            for tid in input_tensor_ids:
+                tensor_info = tensor_flow.get(str(tid), {})
+                if tensor_info.get("measured_conv_cost_ms") is not None:
+                    measured_conv_cost = tensor_info.get("measured_conv_cost_ms")
+                    break
+
+            # Extract call site information from extra field
+            extra = rec.get("extra", {})
+            call_site_file = extra.get("call_site_file")
+            call_site_line = extra.get("call_site_line")
+
+            op_dict = {
+                "op_id": op_id,
+                "module_name": rec.get("module_name"),
+                "module_type": rec.get("module_type"),
+                "forward_time_ms": fwd,
+                "main_tensor_shape": list(shape),
+                "has_noncontig_input": has_nc_in,
+                "has_noncontig_output": has_nc_out,
+                "measured_conv_cost_ms": measured_conv_cost,
+                "input_tensor_ids": input_tensor_ids,
+                "output_tensor_ids": output_tensor_ids,
+            }
+
+            # Add call site info if available
+            if call_site_file is not None:
+                op_dict["call_site_file"] = call_site_file
+            if call_site_line is not None:
+                op_dict["call_site_line"] = call_site_line
+
+            ops.append(op_dict)
+
+            op_id += 1
+
+        return {"ops": ops}
+
+    @staticmethod
+    def export_schedule_json(profile_path: str, output_path: str):
+        """
+        Export schedule.json for compiler.
+
+        Contains:
+        - ops: scheduler-ready operations list with tensor IDs
+        - gpu_idle_events: GPU idle events with op references
+        - tensor_flow: tensor-level data flow graph with measured conversion costs
+
+        Args:
+            profile_path: Path to input profile.json
+            output_path: Path to save schedule.json
+        """
+        with open(profile_path, "r") as f:
+            profile = json.load(f)
+
+        schedule_data = {
+            "ops": ProfileExporter.build_schedule_input(profile)["ops"],
+            "gpu_idle_events": profile.get("gpu_idle_events", []),
+            "tensor_flow": profile.get("tensor_flow", {})
+        }
+
+        with open(output_path, "w") as f:
+            json.dump(schedule_data, f, indent=2)
+
+        print(f"Exported schedule data to {output_path}")
 

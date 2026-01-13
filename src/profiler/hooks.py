@@ -32,7 +32,7 @@ class HookManager:
         # Tensor flow tracking
         self.tensor_producers: Dict[int, int] = {}  # tensor_id -> op_id that produced it
         self.tensor_consumers: Dict[int, List[int]] = {}  # tensor_id -> [op_ids that consumed it]
-        self.tensor_info: Dict[int, Tuple[Tuple[int, ...], bool, Optional[float]]] = {}  # tensor_id -> (shape, is_contiguous, est_cost)
+        self.tensor_info: Dict[int, Tuple[Tuple[int, ...], bool, Optional[float]]] = {}  # tensor_id -> (shape, is_contiguous, measured_conv_cost_ms)
 
     def register_hooks(self):
         """Attach forward hooks to all submodules."""
@@ -115,20 +115,20 @@ class HookManager:
 
             raw_conv_samples = []
             est_conv_cost_ms = None
+            tensor_conv_costs: Dict[int, Optional[float]] = {}  # tensor_id -> measured conversion cost
 
             if self.measure_conversion_cost:
-                targets = []
-                if has_nc_in:
-                    targets.extend([t for t in input_tensors if not t.is_contiguous()])
-                if self.sample_conversion_for_all_shapes and input_tensors:
-                    targets.append(input_tensors[0])
-
-                for t in targets:
-                    cost_ms = measure_conversion_cost(t, self.is_cuda)
-                    if cost_ms is not None:
-                        raw_conv_samples.append(cost_ms)
-                        key = tuple(t.shape)
-                        self.conversion_cost_table.setdefault(key, []).append(cost_ms)
+                # Measure conversion cost for each tensor individually
+                all_tensors = input_tensors + output_tensors
+                for t in all_tensors:
+                    tid = id(t)
+                    if tid not in tensor_conv_costs:
+                        cost_ms = measure_conversion_cost(t, self.is_cuda)
+                        tensor_conv_costs[tid] = cost_ms
+                        if cost_ms is not None:
+                            raw_conv_samples.append(cost_ms)
+                            key = tuple(t.shape)
+                            self.conversion_cost_table.setdefault(key, []).append(cost_ms)
 
                 if raw_conv_samples:
                     est_conv_cost_ms = sum(raw_conv_samples) / len(raw_conv_samples)
@@ -137,12 +137,14 @@ class HookManager:
             for t in input_tensors:
                 tid = id(t)
                 if tid not in self.tensor_info:
-                    self.tensor_info[tid] = (tuple(t.shape), t.is_contiguous(), est_conv_cost_ms)
+                    conv_cost = tensor_conv_costs.get(tid)
+                    self.tensor_info[tid] = (tuple(t.shape), t.is_contiguous(), conv_cost)
 
             for t in output_tensors:
                 tid = id(t)
                 if tid not in self.tensor_info:
-                    self.tensor_info[tid] = (tuple(t.shape), t.is_contiguous(), est_conv_cost_ms)
+                    conv_cost = tensor_conv_costs.get(tid)
+                    self.tensor_info[tid] = (tuple(t.shape), t.is_contiguous(), conv_cost)
 
             # Capture call site information
             call_site = self._get_call_site()

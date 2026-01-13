@@ -26,18 +26,13 @@ make profile
 
 This will:
 1. Run the profiler on your model
-2. Train the cost model
-3. Generate three JSON files in `data/tmp/`:
+2. Generate two JSON files in `data/tmp/`:
 
 **profile.json** - Raw profiling data
 - `records`: Detailed profiling data for each module with tensor IDs
-- `conversion_cost_table`: Measured `.contiguous()` costs
+- `conversion_cost_table`: Measured `.contiguous()` costs by tensor shape
 - `gpu_idle_events`: GPU idle time during data transfer with op references
-- `tensor_flow`: Tensor-level data flow graph (producer-consumer relationships)
-
-**cost.json** - Cost model for debugging
-- `conversion_cost_table`: Measured `.contiguous()` costs
-- `cost_model`: Regression coefficients (α, β, γ)
+- `tensor_flow`: Tensor-level data flow graph with measured conversion costs per tensor
 
 **schedule.json** - Compiler input
 - `ops`: Scheduler-ready operations list with tensor IDs
@@ -55,16 +50,15 @@ python src/train.py
 ```
 x-allocator/
 ├── src/
-│   ├── profiler/          # Contiguity profiler
-│   ├── cost_model/        # Cost estimation model
+│   ├── profiler/          # Contiguity profiler with schedule generation
 │   ├── compiler/          # Code generation (TODO)
 │   ├── model.py           # MinimalGPT model
 │   ├── train.py           # Training script
 │   └── config.py          # Configuration
 ├── scripts/
-│   └── profile.py         # Profile generation script
+│   └── generate_profile.py # Profile and schedule generation script
 ├── data/
-│   └── tmp/               # Generated files (profile.json, etc.)
+│   └── tmp/               # Generated files (profile.json, schedule.json)
 ├── docs/                  # Architecture diagrams
 └── Makefile               # Build targets
 ```
@@ -97,14 +91,14 @@ Key innovation: **Tensor-level tracking** instead of module-level tracking
 - Tracks which tensors are shared across multiple operations
 - Identifies optimization opportunities (e.g., convert once at producer instead of N times at consumers)
 
-### 2. Cost Model Phase (Offline)
+### 2. Schedule Generation Phase (Offline)
 
-The cost model learns a linear regression:
-```
-cost_ms ≈ α * numel + β * ndim + γ
-```
+The profiling data is used to build the schedule.json file, which contains:
+- Measured conversion costs for each tensor (from profiling phase)
+- Tensor-level data flow graph showing producer-consumer relationships
+- GPU idle events with operation references
 
-This allows estimating conversion costs for unseen tensor shapes.
+This allows the compiler to make informed decisions about where to insert `.contiguous()` calls.
 
 ### 3. Compiler Phase (TODO)
 

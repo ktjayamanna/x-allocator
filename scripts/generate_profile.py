@@ -1,9 +1,8 @@
 #!/usr/bin/env python3
 """
-Generate profiling and cost model outputs:
-- profile.json: Raw profiling data (records, conversion_cost_table, gpu_idle_events)
-- cost.json: Cost model data for debugging (conversion_cost_table, cost_model coefficients)
-- schedule.json: Compiler input (ops, gpu_idle_events with op references)
+Generate profiling outputs:
+- profile.json: Raw profiling data (records, conversion_cost_table, gpu_idle_events, tensor_flow)
+- schedule.json: Compiler input (ops, gpu_idle_events, tensor_flow with measured conversion costs)
 """
 import os
 import sys
@@ -17,7 +16,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src'))
 import config
 from utils import load_and_prepare_data, get_model
 from profiler import ContiguityProfiler
-from cost_model import ConversionCostModel
+from profiler.exporter import ProfileExporter
 
 
 def main():
@@ -44,23 +43,15 @@ def main():
     # Use iters=2 to detect persistent vs batch-specific tensors
     profiler.profile(dataloader=train_loader, train_step_fn=train_step, warmup=1, iters=2)
 
-    # Export profile.json (raw profiling data)
+    # Export profile.json (raw profiling data with tensor-level conversion costs)
     profile_path = os.path.join(config.TMP_DIR, "profile.json")
     profiler.export_json(profile_path)
     print(f"profile.json exported")
 
-    # Step 2: Train cost model
-    print("\nStep 2: Training cost model...")
-    cost_model = ConversionCostModel.from_profile_json(profile_path)
-
-    # Export cost.json (cost model data for debugging)
-    cost_path = os.path.join(config.TMP_DIR, "cost.json")
-    cost_model.export_cost_json(profile_path, cost_path)
-    print(f"cost.json exported")
-
-    # Export schedule.json (compiler input)
+    # Step 2: Export schedule.json (compiler input)
+    print("\nStep 2: Exporting schedule...")
     schedule_path = os.path.join(config.TMP_DIR, "schedule.json")
-    cost_model.export_schedule_json(profile_path, schedule_path)
+    ProfileExporter.export_schedule_json(profile_path, schedule_path)
     print(f"schedule.json exported")
 
     print("\n" + "="*80)
@@ -68,11 +59,9 @@ def main():
     print("="*80)
     print(f"\nGenerated files in {config.TMP_DIR}:")
     print(f"\n  profile.json  - Raw profiling data")
-    print(f"                  (records, conversion_cost_table, gpu_idle_events)")
-    print(f"\n  cost.json     - Cost model for debugging")
-    print(f"                  (conversion_cost_table, cost_model coefficients)")
+    print(f"                  (records, conversion_cost_table, gpu_idle_events, tensor_flow)")
     print(f"\n  schedule.json - Compiler input")
-    print(f"                  (ops, gpu_idle_events with op references)")
+    print(f"                  (ops, gpu_idle_events, tensor_flow with measured conversion costs)")
     print("="*80)
 
 

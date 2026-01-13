@@ -5,7 +5,7 @@ help:
 	@echo "x-allocator Makefile"
 	@echo ""
 	@echo "Available targets:"
-	@echo "  make profile       - Generate profile.json, cost.json, and schedule.json"
+	@echo "  make profile       - Generate profile.json and schedule.json"
 	@echo "  make test-compiler - Run full compiler test (profile + compile + show results)"
 	@echo "  make clean         - Remove generated files"
 	@echo "  make help          - Show this help message"
