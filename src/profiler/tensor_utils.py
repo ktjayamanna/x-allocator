@@ -33,30 +33,48 @@ def get_tensor_layout_info(t: torch.Tensor) -> TensorLayoutInfo:
 
 
 def measure_conversion_cost(t: torch.Tensor, is_cuda: bool) -> Optional[float]:
-    """Measure cost of converting a non-contiguous tensor to contiguous."""
-    if t.numel() == 0:
+    """
+    Measure conversion cost on tensor with same memory layout as original.
+
+    Creates a replica that preserves the exact memory layout (strides) of the
+    original tensor, then measures the cost of converting it to contiguous.
+    This gives accurate conversion cost estimates for the actual tensor layouts
+    flowing through the model.
+    """
+    if t.is_contiguous() or t.numel() == 0:
         return None
 
     with torch.no_grad():
-        dummy = torch.empty_like(t)
-
-        if dummy.ndim >= 2:
-            nc = dummy.transpose(-1, -2).contiguous().transpose(-1, -2)
-        else:
-            nc = dummy[::2]
-            if nc.numel() == 0:
-                nc = dummy
-
-        if nc.is_contiguous():
-            return None
+        try:
+            # Create tensor with identical strides and memory pattern
+            copy_with_layout = torch.empty_strided(
+                t.shape,
+                t.stride(),
+                dtype=t.dtype,
+                device=t.device
+            )
+            copy_with_layout.copy_(t)  # Copy data into the non-contiguous layout
+        except RuntimeError:
+            # Handle cases where strides cause overlapping memory (e.g., from expand())
+            # Fall back to cloning the original tensor which preserves the view
+            copy_with_layout = t.clone()
+            if copy_with_layout.is_contiguous():
+                # If clone made it contiguous, we can't measure - use as_strided
+                # to recreate a similar non-contiguous layout
+                copy_with_layout = torch.as_strided(
+                    t.clone().contiguous(),
+                    t.shape,
+                    t.stride(),
+                    storage_offset=0
+                )
 
         if is_cuda:
             torch.cuda.synchronize()
         start = time.perf_counter()
-        _ = nc.contiguous()
+        _ = copy_with_layout.contiguous()  # Convert the copy
         if is_cuda:
             torch.cuda.synchronize()
         end = time.perf_counter()
 
-        return (end - start) * 1000.0
+        return (end - start) * 1000.0  # Converting seconds to milliseconds
 
