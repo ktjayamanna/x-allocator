@@ -213,10 +213,15 @@ class HookManager:
                     conv_cost = tensor_conv_costs.get(tid)
                     self.tensor_info[tid] = (tuple(t.shape), t.is_contiguous(), conv_cost)
 
-            # Three-Field Persistence Tracking:
-            # Record fingerprint for each tensor using anchor_key
+            # Three-Field Persistence Tracking (with Early Exit optimization):
+            # Only track non-contiguous tensors to keep profiler lightweight
             all_tensors = input_tensors + output_tensors
             for idx, t in enumerate(all_tensors):
+                # Early Exit: Skip contiguous tensors - we only care about
+                # tensors that currently have a memory layout problem
+                if t.is_contiguous():
+                    continue
+
                 # Create unique anchor name per tensor if multiple tensors
                 tensor_anchor = f"{anchor_key}:tensor_{idx}" if len(all_tensors) > 1 else anchor_key
 
