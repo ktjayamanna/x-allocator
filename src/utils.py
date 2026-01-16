@@ -56,7 +56,13 @@ def load_and_prepare_data():
     return train_dataset, eval_dataset
 
 class Mark(nn.Module):
-    """Marker module - makes tensor visible to profiler hooks."""
-    def forward(self, x):
+    """
+    Pass-through module that tags a tensor with a user-defined name.
+
+    The hook will capture the 'name' string from the inputs to identify
+    tensors using the Explicit Naming Contract.
+    """
+    def forward(self, x, name: str):
+        # The hook will capture this 'name' string from the inputs.
         return x
 

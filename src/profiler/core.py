@@ -59,6 +59,16 @@ class ContiguityProfiler:
     def tensor_info(self):
         return self._hook_manager.tensor_info
 
+    @property
+    def tensor_persistence(self):
+        """Maps anchor_name -> 'persistent' | 'transient'."""
+        return self._hook_manager.tensor_persistence
+
+    @property
+    def anchor_tensor_info(self):
+        """Maps anchor_name -> (shape, is_contiguous, conv_cost)."""
+        return self._hook_manager.anchor_tensor_info
+
     def profile(
         self,
         dataloader,
@@ -98,6 +108,9 @@ class ContiguityProfiler:
         # Profile iterations
         num_ops_per_iter = None
         for iter_idx in range(iters):
+            # Set current iteration for persistence tracking
+            self._hook_manager.set_current_iteration(iter_idx)
+
             try:
                 batch = next(data_iter)
             except StopIteration:
@@ -150,6 +163,9 @@ class ContiguityProfiler:
                 num_ops_per_iter = records_after - records_before
                 self.num_ops_per_iter = num_ops_per_iter
 
+        # Compute persistence classification after profiling iterations
+        self._hook_manager.compute_persistence()
+
         self._hook_manager.remove_hooks()
 
     def summarize(self, top_k: int = 20):
@@ -175,6 +191,8 @@ class ContiguityProfiler:
             self.tensor_consumers,
             self.tensor_info,
             self.num_ops_per_iter,
-            path
+            path,
+            self.tensor_persistence,
+            self.anchor_tensor_info,
         )
 

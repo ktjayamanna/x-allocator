@@ -5,7 +5,7 @@ from typing import Any, Dict, List, Optional, Tuple
 import torch
 import torch.nn as nn
 
-from .data_types import OpProfileRecord
+from .data_types import OpProfileRecord, TensorFingerprint
 from .tensor_utils import iter_tensors, get_tensor_layout_info, measure_conversion_cost
 
 
@@ -34,6 +34,18 @@ class HookManager:
         self.tensor_consumers: Dict[int, List[int]] = {}  # tensor_id -> [op_ids that consumed it]
         self.tensor_info: Dict[int, Tuple[Tuple[int, ...], bool, Optional[float]]] = {}  # tensor_id -> (shape, is_contiguous, measured_conv_cost_ms)
 
+        # Three-field persistence tracking (Explicit Naming Contract)
+        # Maps anchor_name -> TensorFingerprint for iteration 1
+        self._iteration_1_fingerprints: Dict[str, TensorFingerprint] = {}
+        # Maps anchor_name -> TensorFingerprint for iteration 2
+        self._iteration_2_fingerprints: Dict[str, TensorFingerprint] = {}
+        # Current iteration index (0-based, set during profiling)
+        self._current_iteration: int = 0
+        # Final persistence classification: anchor_name -> "persistent" | "transient"
+        self.tensor_persistence: Dict[str, str] = {}
+        # Maps anchor_name -> tensor info for export
+        self.anchor_tensor_info: Dict[str, Tuple[Tuple[int, ...], bool, Optional[float]]] = {}
+
     def register_hooks(self):
         """Attach forward hooks to all submodules."""
         for name, module in self.model.named_modules():
@@ -54,6 +66,55 @@ class HookManager:
         self.tensor_producers.clear()
         self.tensor_consumers.clear()
         self.tensor_info.clear()
+        self._iteration_1_fingerprints.clear()
+        self._iteration_2_fingerprints.clear()
+        self._current_iteration = 0
+        self.tensor_persistence.clear()
+        self.anchor_tensor_info.clear()
+
+    def set_current_iteration(self, iteration: int):
+        """Set the current iteration index for persistence tracking."""
+        self._current_iteration = iteration
+
+    def compute_persistence(self):
+        """
+        Compare fingerprints from iteration 1 vs iteration 2 to classify persistence.
+
+        CASE A: Persistent (Target for Optimization)
+            - Name Matches AND Object ID Matches AND Data Pointer Matches
+            - Conclusion: The tensor is stable. If non-contiguous, we fix it.
+
+        CASE B: Transient (Ignore)
+            - Name Matches BUT Object ID Changed OR Data Pointer Changed
+            - Conclusion: Tensor was recreated or moved. Do not optimize.
+        """
+        all_anchor_names = set(self._iteration_1_fingerprints.keys()) | set(self._iteration_2_fingerprints.keys())
+
+        for anchor_name in all_anchor_names:
+            fp1 = self._iteration_1_fingerprints.get(anchor_name)
+            fp2 = self._iteration_2_fingerprints.get(anchor_name)
+
+            if fp1 is None or fp2 is None:
+                # Only appeared in one iteration - classify as transient
+                self.tensor_persistence[anchor_name] = "transient"
+            elif fp1.object_id == fp2.object_id and fp1.data_ptr == fp2.data_ptr:
+                # CASE A: All three fields match - persistent
+                self.tensor_persistence[anchor_name] = "persistent"
+            else:
+                # CASE B: Name matches but object_id or data_ptr changed - transient
+                self.tensor_persistence[anchor_name] = "transient"
+
+    def _extract_explicit_name(self, inputs: Tuple) -> Optional[str]:
+        """
+        Extract explicit name string from inputs (for Mark module).
+
+        The Mark module passes (tensor, name: str) as inputs.
+        Returns the string if found, None otherwise.
+        """
+        for item in inputs:
+            if isinstance(item, str):
+                return item
+        return None
 
     def _get_call_site(self) -> Optional[Tuple[str, int]]:
         """Get the file path and line number where the module was called from."""
@@ -102,6 +163,12 @@ class HookManager:
             input_tensor_ids = [id(t) for t in input_tensors]
             output_tensor_ids = [id(t) for t in output_tensors]
 
+            # Hybrid Naming Strategy:
+            # 1. Explicit Names (Priority): Check for string argument from Mark module
+            # 2. Implicit Names (Fallback): Use module's registry name
+            explicit_name = self._extract_explicit_name(inputs)
+            anchor_key = explicit_name if explicit_name is not None else name
+
             # Current op_id
             current_op_id = len(self.records)
 
@@ -146,12 +213,40 @@ class HookManager:
                     conv_cost = tensor_conv_costs.get(tid)
                     self.tensor_info[tid] = (tuple(t.shape), t.is_contiguous(), conv_cost)
 
+            # Three-Field Persistence Tracking:
+            # Record fingerprint for each tensor using anchor_key
+            all_tensors = input_tensors + output_tensors
+            for idx, t in enumerate(all_tensors):
+                # Create unique anchor name per tensor if multiple tensors
+                tensor_anchor = f"{anchor_key}:tensor_{idx}" if len(all_tensors) > 1 else anchor_key
+
+                fingerprint = TensorFingerprint(
+                    anchor_name=tensor_anchor,
+                    object_id=id(t),
+                    data_ptr=t.data_ptr(),
+                )
+
+                # Record fingerprint for current iteration
+                if self._current_iteration == 0:
+                    self._iteration_1_fingerprints[tensor_anchor] = fingerprint
+                else:
+                    self._iteration_2_fingerprints[tensor_anchor] = fingerprint
+
+                # Store tensor info by anchor name for export
+                conv_cost = tensor_conv_costs.get(id(t))
+                self.anchor_tensor_info[tensor_anchor] = (tuple(t.shape), t.is_contiguous(), conv_cost)
+
             # Capture call site information
             call_site = self._get_call_site()
             extra = {}
             if call_site:
                 extra["call_site_file"] = call_site[0]
                 extra["call_site_line"] = call_site[1]
+
+            # Add anchor key to extra for tracking
+            extra["anchor_key"] = anchor_key
+            if explicit_name is not None:
+                extra["explicit_name"] = explicit_name
 
             record = OpProfileRecord(
                 module_name=name,

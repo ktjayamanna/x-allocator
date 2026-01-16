@@ -22,12 +22,12 @@ class MultiHeadAttention(nn.Module):
         qkv = self.qkv(x)
         q, k, v = qkv.split(self.n_embd, dim=2)
 
-        q = self.mark(q.view(B, T, self.n_head, self.head_dim).transpose(1, 2))  # @noncontig
-        k = self.mark(k.view(B, T, self.n_head, self.head_dim).transpose(1, 2))  # @noncontig
-        v = self.mark(v.view(B, T, self.n_head, self.head_dim).transpose(1, 2))  # @noncontig
+        q = self.mark(q.view(B, T, self.n_head, self.head_dim).transpose(1, 2), "attn_q")  # @noncontig
+        k = self.mark(k.view(B, T, self.n_head, self.head_dim).transpose(1, 2), "attn_k")  # @noncontig
+        v = self.mark(v.view(B, T, self.n_head, self.head_dim).transpose(1, 2), "attn_v")  # @noncontig
 
         qk_similarity = (q @ k.transpose(-2, -1)) * (1.0 / math.sqrt(k.size(-1)))
-        qk_similarity = self.mark(qk_similarity) #trap for the compiler
+        qk_similarity = self.mark(qk_similarity, "attn_qk_similarity")  # trap for the compiler
         mask = torch.tril(torch.ones(T, T, device=x.device))
         qk_similarity = qk_similarity.masked_fill(mask == 0, float('-inf'))
         qk_similarity = F.softmax(qk_similarity, dim=-1)
@@ -88,7 +88,7 @@ class MinimalGPT(nn.Module):
 
         pos = torch.arange(T, device=input_ids.device)
         pos_emb = self.pos_emb(pos)
-        pos_emb = self.mark(pos_emb.unsqueeze(0).expand(B, -1, -1))  # @noncontig
+        pos_emb = self.mark(pos_emb.unsqueeze(0).expand(B, -1, -1), "pos_emb_expanded")  # @noncontig
 
         x = tok_emb + pos_emb
         for block in self.blocks:

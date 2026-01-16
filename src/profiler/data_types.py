@@ -54,3 +54,16 @@ class TensorFlowNode:
     consumed_by: List[int]  # op_ids that consumed this tensor
     estimated_conv_cost_ms: Optional[float]  # Cost to convert to contiguous
 
+
+@dataclass
+class TensorFingerprint:
+    """
+    Three-field fingerprint for tracking tensor persistence across iterations.
+
+    Used to determine if a tensor is persistent (stable across batches) or
+    transient (recreated each batch).
+    """
+    anchor_name: str  # The String ID (explicit from Mark or implicit from module name)
+    object_id: int  # Python id(tensor)
+    data_ptr: int  # tensor.data_ptr()
+

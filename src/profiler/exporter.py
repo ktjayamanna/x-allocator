@@ -19,6 +19,8 @@ class ProfileExporter:
         tensor_info: Dict[int, Tuple[Tuple[int, ...], bool, Any]],
         num_ops_per_iter: Optional[int],
         path: str,
+        tensor_persistence: Optional[Dict[str, str]] = None,
+        anchor_tensor_info: Optional[Dict[str, Tuple[Tuple[int, ...], bool, Any]]] = None,
     ):
         """Export raw profiling data to JSON file (profile.json)."""
         data = {
@@ -28,7 +30,8 @@ class ProfileExporter:
             },
             "gpu_idle_events": [ProfileExporter._idle_event_to_dict(e) for e in idle_events],
             "tensor_flow": ProfileExporter._build_tensor_flow_graph(
-                tensor_producers, tensor_consumers, tensor_info, num_ops_per_iter
+                tensor_producers, tensor_consumers, tensor_info, num_ops_per_iter,
+                tensor_persistence, anchor_tensor_info
             ),
         }
         with open(path, "w") as f:
@@ -79,6 +82,8 @@ class ProfileExporter:
         tensor_consumers: Dict[int, List[int]],
         tensor_info: Dict[int, Tuple[Tuple[int, ...], bool, Any]],
         num_ops_per_iter: Optional[int],
+        tensor_persistence: Optional[Dict[str, str]] = None,
+        anchor_tensor_info: Optional[Dict[str, Tuple[Tuple[int, ...], bool, Any]]] = None,
     ) -> Dict[str, Any]:
         """Build tensor flow graph from producer-consumer relationships."""
         tensor_flow = {}
@@ -89,7 +94,7 @@ class ProfileExporter:
         for tid in all_tensor_ids:
             shape, is_contiguous, measured_conv_cost = tensor_info.get(tid, ((), True, None))
 
-            # Compute tensor lifetime
+            # Use legacy lifetime computation as fallback
             lifetime = ProfileExporter._compute_tensor_lifetime(
                 tid, tensor_producers, tensor_consumers, num_ops_per_iter
             )
@@ -103,6 +108,21 @@ class ProfileExporter:
                 "measured_conv_cost_ms": measured_conv_cost,
                 "lifetime": lifetime,
             }
+
+        # Add anchor-based tensor flow with three-field persistence check
+        if tensor_persistence and anchor_tensor_info:
+            anchor_flow = {}
+            for anchor_name, persistence in tensor_persistence.items():
+                info = anchor_tensor_info.get(anchor_name, ((), True, None))
+                shape, is_contiguous, measured_conv_cost = info
+                anchor_flow[anchor_name] = {
+                    "anchor_name": anchor_name,
+                    "shape": list(shape),
+                    "is_contiguous": is_contiguous,
+                    "measured_conv_cost_ms": measured_conv_cost,
+                    "persistence": persistence,
+                }
+            tensor_flow["_anchor_tensors"] = anchor_flow
 
         return tensor_flow
 
