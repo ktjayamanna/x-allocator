@@ -181,6 +181,11 @@ class ContiguityProfiler:
             print(f"Average idle time per event: {avg_idle_ms:.2f} ms")
             print()
 
+    @property
+    def fingerprint_flow(self):
+        """Get the fingerprint-based tensor flow graph."""
+        return self._hook_manager.get_fingerprint_flow()
+
     def export_json(self, path: str):
         """Export profiling data to JSON file."""
         ProfileExporter.export_json(
@@ -194,5 +199,6 @@ class ContiguityProfiler:
             path,
             self.tensor_persistence,
             self.anchor_tensor_info,
+            self.fingerprint_flow,
         )
 

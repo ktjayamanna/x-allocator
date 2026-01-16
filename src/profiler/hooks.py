@@ -29,10 +29,18 @@ class HookManager:
         self.records: List[OpProfileRecord] = []
         self.conversion_cost_table: Dict[Tuple[int, ...], List[float]] = {}
 
-        # Tensor flow tracking
+        # Legacy tensor flow tracking (kept for backward compatibility)
         self.tensor_producers: Dict[int, int] = {}  # tensor_id -> op_id that produced it
         self.tensor_consumers: Dict[int, List[int]] = {}  # tensor_id -> [op_ids that consumed it]
         self.tensor_info: Dict[int, Tuple[Tuple[int, ...], bool, Optional[float]]] = {}  # tensor_id -> (shape, is_contiguous, measured_conv_cost_ms)
+
+        # Fingerprint-based tensor flow tracking (robust identification)
+        # Maps fingerprint_key -> (TensorFingerprint, op_id) for producers
+        self.fingerprint_producers: Dict[str, Tuple[TensorFingerprint, int]] = {}
+        # Maps fingerprint_key -> [(TensorFingerprint, op_id)] for consumers
+        self.fingerprint_consumers: Dict[str, List[Tuple[TensorFingerprint, int]]] = {}
+        # Maps (object_id, data_ptr) -> fingerprint_key for cross-referencing
+        self._tensor_to_fingerprint: Dict[Tuple[int, int], str] = {}
 
         # Three-field persistence tracking (Explicit Naming Contract)
         # Maps anchor_name -> TensorFingerprint for iteration 1
@@ -66,6 +74,9 @@ class HookManager:
         self.tensor_producers.clear()
         self.tensor_consumers.clear()
         self.tensor_info.clear()
+        self.fingerprint_producers.clear()
+        self.fingerprint_consumers.clear()
+        self._tensor_to_fingerprint.clear()
         self._iteration_1_fingerprints.clear()
         self._iteration_2_fingerprints.clear()
         self._current_iteration = 0
@@ -115,6 +126,56 @@ class HookManager:
             if isinstance(item, str):
                 return item
         return None
+
+    def get_fingerprint_flow(self) -> Dict[str, Any]:
+        """
+        Build tensor flow graph using TensorFingerprint-based tracking.
+
+        Returns a dictionary containing:
+        - producers: Maps fingerprint_key -> {fingerprint_info, producer_op_id}
+        - consumers: Maps fingerprint_key -> [{fingerprint_info, consumer_op_id}, ...]
+        - edges: List of (producer_op_id, consumer_op_id, fingerprint_info) tuples
+        """
+        producers = {}
+        consumers = {}
+        edges = []
+
+        # Build producer info
+        for fp_key, (fingerprint, op_id) in self.fingerprint_producers.items():
+            producers[fp_key] = {
+                "anchor_name": fingerprint.anchor_name,
+                "object_id": fingerprint.object_id,
+                "data_ptr": fingerprint.data_ptr,
+                "producer_op_id": op_id,
+            }
+
+        # Build consumer info and edges
+        for fp_key, consumer_list in self.fingerprint_consumers.items():
+            consumers[fp_key] = []
+            producer_op_id = None
+            if fp_key in self.fingerprint_producers:
+                _, producer_op_id = self.fingerprint_producers[fp_key]
+
+            for fingerprint, consumer_op_id in consumer_list:
+                consumers[fp_key].append({
+                    "anchor_name": fingerprint.anchor_name,
+                    "object_id": fingerprint.object_id,
+                    "data_ptr": fingerprint.data_ptr,
+                    "consumer_op_id": consumer_op_id,
+                })
+                if producer_op_id is not None:
+                    edges.append({
+                        "producer_op_id": producer_op_id,
+                        "consumer_op_id": consumer_op_id,
+                        "fingerprint_key": fp_key,
+                        "anchor_name": fingerprint.anchor_name,
+                    })
+
+        return {
+            "producers": producers,
+            "consumers": consumers,
+            "edges": edges,
+        }
 
     def _get_call_site(self) -> Optional[Tuple[str, int]]:
         """Get the file path and line number where the module was called from."""
@@ -172,11 +233,9 @@ class HookManager:
             # Current op_id
             current_op_id = len(self.records)
 
-            # Track tensor consumers (inputs)
+            # Legacy tracking (backward compatibility)
             for tid in input_tensor_ids:
                 self.tensor_consumers.setdefault(tid, []).append(current_op_id)
-
-            # Track tensor producers (outputs)
             for tid in output_tensor_ids:
                 self.tensor_producers[tid] = current_op_id
 
@@ -200,7 +259,7 @@ class HookManager:
                 if raw_conv_samples:
                     est_conv_cost_ms = sum(raw_conv_samples) / len(raw_conv_samples)
 
-            # Store tensor info for building flow graph later
+            # Store tensor info for building flow graph later (legacy)
             for t in input_tensors:
                 tid = id(t)
                 if tid not in self.tensor_info:
@@ -212,6 +271,35 @@ class HookManager:
                 if tid not in self.tensor_info:
                     conv_cost = tensor_conv_costs.get(tid)
                     self.tensor_info[tid] = (tuple(t.shape), t.is_contiguous(), conv_cost)
+
+            # Fingerprint-based producer/consumer tracking
+            # Track input tensors as consumers of this operation
+            for idx, t in enumerate(input_tensors):
+                tensor_key = (id(t), t.data_ptr())
+                # Look up if this tensor was produced by a previous op
+                if tensor_key in self._tensor_to_fingerprint:
+                    fp_key = self._tensor_to_fingerprint[tensor_key]
+                    # Get the fingerprint from the producer
+                    if fp_key in self.fingerprint_producers:
+                        producer_fp, _ = self.fingerprint_producers[fp_key]
+                        self.fingerprint_consumers.setdefault(fp_key, []).append(
+                            (producer_fp, current_op_id)
+                        )
+
+            # Track output tensors as produced by this operation
+            for idx, t in enumerate(output_tensors):
+                tensor_anchor = f"{anchor_key}:out_{idx}" if len(output_tensors) > 1 else f"{anchor_key}:out"
+                conv_cost = tensor_conv_costs.get(id(t))
+
+                fingerprint = TensorFingerprint(
+                    anchor_name=tensor_anchor,
+                    object_id=id(t),
+                    data_ptr=t.data_ptr(),
+                )
+
+                fp_key = f"{tensor_anchor}|{id(t)}|{t.data_ptr()}"
+                self.fingerprint_producers[fp_key] = (fingerprint, current_op_id)
+                self._tensor_to_fingerprint[(id(t), t.data_ptr())] = fp_key
 
             # Three-Field Persistence Tracking (with Early Exit optimization):
             # Only track non-contiguous tensors to keep profiler lightweight

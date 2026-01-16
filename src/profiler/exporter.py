@@ -21,6 +21,7 @@ class ProfileExporter:
         path: str,
         tensor_persistence: Optional[Dict[str, str]] = None,
         anchor_tensor_info: Optional[Dict[str, Tuple[Tuple[int, ...], bool, Any]]] = None,
+        fingerprint_flow: Optional[Dict[str, Any]] = None,
     ):
         """Export raw profiling data to JSON file (profile.json)."""
         data = {
@@ -34,6 +35,10 @@ class ProfileExporter:
                 tensor_persistence, anchor_tensor_info
             ),
         }
+        # Add fingerprint-based flow if available
+        if fingerprint_flow is not None:
+            data["fingerprint_flow"] = fingerprint_flow
+
         with open(path, "w") as f:
             json.dump(data, f, indent=2)
         print(f"Exported profiling data to {path}")
